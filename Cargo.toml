@@ -1,0 +1,19 @@
+[package]
+name = "cross_correlogram"
+version = "0.1.0"
+edition = "2021"
+
+# This tells Cargo to build a C-compatible shared library
+# On macOS this produces: target/release/libcross_correlogram.dylib
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustfft   = "6.2"      # FFT engine
+ndarray   = { version = "0.16", features = ["rayon"] }     # N-dimensional arrays
+rayon     = "1.10"     # parallelism across neuron pairs
+num-complex = "0.4"    # complex number type for FFT
+
+[profile.release]
+opt-level = 3          # maximum optimization (like -O3 in C)
+lto = true             # link-time optimization — extra speed
