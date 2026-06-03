@@ -1,4 +1,4 @@
-# ripccg
+# fast-ccg
 
 **Fast, jitter-corrected cross-correlograms for neural spike trains — written in Rust, callable from Julia.**
 

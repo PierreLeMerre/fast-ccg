@@ -8,32 +8,40 @@ using Printf
 using HDF5
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-const NWB_PATH   = "/Volumes/MorseSSD/NPX_Database/frozen_Aversion_Nat_Submission/216300_20200518-probe0.nwb"
-const EPOCH_PATH = "/Volumes/MorseSSD/Pierre_Server_BACKUP/PFCmap_NHP/preprocessing/metrics_extraction/timeselections/timeselections_Carlen/216300_20200518-probe0__TSELprestim3__STATEactive__all.h5"
-const BINSIZE    = 0.0005   # 0.5ms bins
-const MIN_FR     = 0.0005   # minimum firing rate (spikes/bin)
-const JITTER_WIN = 50       # 25ms jitter window → 50 bins at 0.5ms
+const NWB_PATH  = "/Volumes/MorseSSD/NPX_Database/frozen_Aversion_Nat_Submission/216300_20200518-probe0.nwb"
+
+# Intervals: Matrix{Float64} [n_trials × 2], columns [t_in  t_out] in seconds.
+# Set to nothing to use the whole recording (0 → last spike).
+# Example: const INTERVALS = [0.0 10.0; 20.0 30.0; 50.0 60.0]
+const INTERVALS = nothing
+const BINSIZE       = 0.0005  # 0.5ms bins
+const MIN_FR_HZ     = 0.1     # minimum firing rate in Hz
+const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
+const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
+const UNITS         = nothing # restrict to specific unit IDs, e.g. [1, 44, 67] or a range [51:100]; nothing = all
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 println("Loading spike times...")
 spk_times, unit_ids = load_spike_times(NWB_PATH)
 println("  $(length(spk_times)) units loaded")
 
-println("Loading epochs...")
-ts_in, ts_out = load_epochs(EPOCH_PATH)
-n_trials_raw  = length(ts_in)
-epoch_dur_ms  = round((ts_out[1] - ts_in[1]) * 1000, digits=1)
-win_bins      = round(Int, (ts_out[1] - ts_in[1]) / BINSIZE)
+intervals = isnothing(INTERVALS) ?
+    whole_recording_intervals(spk_times; chunk_duration=CHUNK_DUR) : INTERVALS
+n_trials_raw  = size(intervals, 1)
+epoch_dur_ms  = round((intervals[1, 2] - intervals[1, 1]) * 1000, digits=1)
+win_bins      = round(Int, (intervals[1, 2] - intervals[1, 1]) / BINSIZE)
+mem_est_gb    = round(2 * win_bins * 2 * n_trials_raw * 8 / 1e9, digits=2)
 
-println("  $n_trials_raw epochs loaded")
-println("  Epoch duration : $epoch_dur_ms ms → $win_bins bins/trial")
+println("Intervals : $n_trials_raw trial(s) × $epoch_dur_ms ms → $win_bins bins/trial")
+println("  Spike matrix memory estimate per neuron: $(round(win_bins * n_trials_raw * 8 / 1e6, digits=1)) MB")
 
 # ── Bin spikes ────────────────────────────────────────────────────────────────
 println("\nBinning spikes...")
 matrices, frs, kept_ids = prepare_all_neurons(
-    spk_times, ts_in, ts_out;
-    binsize = BINSIZE,
-    min_fr  = MIN_FR
+    spk_times, unit_ids, intervals;
+    binsize      = BINSIZE,
+    min_fr_hz    = MIN_FR_HZ,
+    select_units = UNITS
 )
 
 n_time, n_trials = size(matrices[1])
@@ -92,7 +100,7 @@ h5open("ccg_results.h5", "w") do f
     f["raw"]        = raw
     f["corrected"]  = corrected
     f["lags_ms"]    = lags_ms
-    f["kept_ids"]   = kept_ids
+    f["kept_ids"]   = Int.(kept_ids)
     f["pairs_i"]    = [p[1] for p in pairs]
     f["pairs_m"]    = [p[2] for p in pairs]
     f["is_sig"]     = Float64.(is_sig)

@@ -1,5 +1,6 @@
 using HDF5
 using Statistics
+using ProgressMeter
 
 """
     load_spike_times(nwb_path)
@@ -23,7 +24,7 @@ function load_spike_times(nwb_path::String)
             for i in 1:length(unit_ids)
         ]
 
-        # Fix first unit edge case from your original code
+        # Fix first unit edge case
         pushfirst!(spk_times[1], unit_times_data[unit_times_idx[1]])
 
         return spk_times, unit_ids
@@ -31,36 +32,65 @@ function load_spike_times(nwb_path::String)
 end
 
 """
-    load_epochs(epoch_path)
+    firing_rate_hz(spk_times)
 
-Load epoch start/end timestamps from HDF5 epoch file.
+Compute mean firing rate in Hz from raw spike timestamps:
+  FR = n_spikes / (t_last - t_first)
 
-Returns:
-  ts_in  : Vector{Float64} — epoch start times in seconds
-  ts_out : Vector{Float64} — epoch end times in seconds
+Returns 0.0 for units with fewer than 2 spikes.
 """
-function load_epochs(epoch_path::String)
-    h5open(epoch_path, "r") do f
-        tints  = read(f["tints"])
-        ts_in  = tints[1, :]
-        ts_out = tints[2, :]
-        return Float64.(ts_in), Float64.(ts_out)
-    end
+function firing_rate_hz(spk_times::Vector{Float64})
+    length(spk_times) < 2 && return 0.0
+    return length(spk_times) / (maximum(spk_times) - minimum(spk_times))
 end
 
 """
-    bin_spikes_to_matrix(spk_times, ts_in, ts_out; binsize=0.001)
+    chunk_intervals(t_start, t_end; chunk_duration=3.0)
+
+Split [t_start, t_end] into non-overlapping windows of `chunk_duration` seconds.
+Any remainder shorter than one full chunk is dropped.
+
+Returns a Matrix{Float64} [n_chunks × 2] with columns [t_in  t_out].
+
+This is the key tool for keeping memory under control when processing a whole
+recording: instead of one giant FFT over millions of bins, each chunk becomes
+one trial in the [n_time × n_trials] matrix, keeping n_time small.
+"""
+function chunk_intervals(t_start::Float64, t_end::Float64; chunk_duration::Float64 = 3.0)
+    n   = floor(Int, (t_end - t_start) / chunk_duration)
+    n == 0 && error("Recording duration $(t_end - t_start)s is shorter than chunk_duration=$(chunk_duration)s")
+    ts  = t_start .+ (0:n-1) .* chunk_duration
+    return hcat(ts, ts .+ chunk_duration)
+end
+
+"""
+    whole_recording_intervals(spk_times; chunk_duration=3.0)
+
+Build intervals covering the whole recording by chunking 0 → t_last into
+windows of `chunk_duration` seconds (default 3 s).
+
+Use `chunk_duration=Inf` to get a single interval if you really want one giant
+window — but that will use enormous memory for long recordings.
+
+Returns a Matrix{Float64} [n_chunks × 2].
+"""
+function whole_recording_intervals(
+    spk_times::Vector{Vector{Float64}};
+    chunk_duration::Float64 = 3.0
+)
+    t_end = maximum(maximum(s) for s in spk_times if !isempty(s))
+    isinf(chunk_duration) && return [0.0  t_end]
+    return chunk_intervals(0.0, t_end; chunk_duration=chunk_duration)
+end
+
+"""
+    bin_spikes_to_matrix(spk_times, intervals; binsize=0.001)
 
 Convert raw spike timestamps into a [n_time × n_trials] spike count matrix.
 
-Each trial is one epoch [ts_in[k], ts_out[k]].
-Spikes are binned at `binsize` resolution (default 1ms).
-Spike counts > 1 per bin are preserved.
-
 Arguments:
   spk_times : Vector{Float64} — spike timestamps in seconds for ONE neuron
-  ts_in     : Vector{Float64} — epoch start times
-  ts_out    : Vector{Float64} — epoch end times
+  intervals : Matrix{Float64} [n_trials × 2], columns [t_in  t_out]
   binsize   : bin size in seconds (default 1ms)
 
 Returns:
@@ -68,28 +98,24 @@ Returns:
 """
 function bin_spikes_to_matrix(
     spk_times::Vector{Float64},
-    ts_in::Vector{Float64},
-    ts_out::Vector{Float64};
+    intervals::Matrix{Float64};
     binsize::Float64 = 0.001
 )
-    n_trials = length(ts_in)
-
-    # Compute n_time from first epoch duration (all epochs same length)
-    epoch_dur = ts_out[1] - ts_in[1]
+    n_trials  = size(intervals, 1)
+    epoch_dur = intervals[1, 2] - intervals[1, 1]
     n_time    = round(Int, epoch_dur / binsize)
 
     mat = zeros(Float64, n_time, n_trials)
 
-    for (k, (t_start, t_end)) in enumerate(zip(ts_in, ts_out))
-        # Find spikes within this epoch using searchsorted (fast binary search)
-        # equivalent to: spk_times[(spk_times .>= t_start) .& (spk_times .< t_end)]
+    for k in 1:n_trials
+        t_start = intervals[k, 1]
+        t_end   = intervals[k, 2]
+
         i_start = searchsortedfirst(spk_times, t_start)
         i_end   = searchsortedlast(spk_times, t_end)
 
         for idx in i_start:i_end
-            t_spike = spk_times[idx]
-            # Convert to bin index (1-based)
-            bin = floor(Int, (t_spike - t_start) / binsize) + 1
+            bin = floor(Int, (spk_times[idx] - t_start) / binsize) + 1
             if 1 <= bin <= n_time
                 mat[bin, k] += 1.0
             end
@@ -100,61 +126,70 @@ function bin_spikes_to_matrix(
 end
 
 """
-    prepare_all_neurons(spk_times, ts_in, ts_out; binsize=0.001, min_fr=0.0)
+    prepare_all_neurons(spk_times, unit_ids, intervals; binsize, min_fr_hz, select_units)
 
-Bin all neurons into spike matrices and compute firing rates.
-Optionally filter out neurons below a minimum firing rate.
+Bin neurons into spike matrices and compute firing rates.
 
 Arguments:
-  spk_times : Vector{Vector{Float64}} — one per neuron
-  ts_in     : Vector{Float64} — epoch starts
-  ts_out    : Vector{Float64} — epoch ends
-  binsize   : bin size in seconds
-  min_fr    : minimum firing rate in spikes/bin to include neuron (default 0 = keep all)
+  spk_times    : Vector{Vector{Float64}} — one per neuron
+  unit_ids     : Vector — NWB unit IDs, one per neuron (from load_spike_times)
+  intervals    : Matrix{Float64} [n_trials × 2] — [t_in  t_out] rows
+  binsize      : bin size in seconds (default 1ms)
+  min_fr_hz    : minimum firing rate in Hz; neurons below this are dropped (default 0 = keep all)
+  select_units : optional Vector of unit IDs to restrict to (default nothing = all units)
 
 Returns:
-  matrices  : Vector{Matrix{Float64}} — spike matrices, one per neuron
-  frs       : Vector{Float64} — mean firing rate in spikes/bin
-  kept_ids  : Vector{Int} — indices of neurons that passed the fr filter
+  matrices  : Vector{Matrix{Float64}} — spike matrices, one per kept neuron
+  frs_hz    : Vector{Float64} — firing rate in Hz per kept neuron
+  kept_ids  : Vector — unit IDs of kept neurons
 """
 function prepare_all_neurons(
     spk_times::Vector{Vector{Float64}},
-    ts_in::Vector{Float64},
-    ts_out::Vector{Float64};
-    binsize::Float64 = 0.001,
-    min_fr::Float64  = 0.0
+    unit_ids,
+    intervals::Matrix{Float64};
+    binsize::Float64      = 0.001,
+    min_fr_hz::Float64    = 0.0,
+    select_units          = nothing
 )
+    unit_set = isnothing(select_units) ? nothing : Set(Iterators.flatten(
+        x isa AbstractRange ? x : (x,) for x in select_units
+    ))
+
     matrices = Matrix{Float64}[]
-    frs      = Float64[]
-    kept_ids = Int[]
+    frs_hz   = Float64[]
+    kept_ids = []
 
+    prog = Progress(length(spk_times); desc="Binning neurons: ", showspeed=true)
     for (i, spk) in enumerate(spk_times)
-        mat = bin_spikes_to_matrix(spk, ts_in, ts_out; binsize=binsize)
-        fr  = mean(mat)
-
-        if fr > min_fr
-            push!(matrices, mat)
-            push!(frs, fr)
-            push!(kept_ids, i)
+        uid = unit_ids[i]
+        if !isnothing(unit_set) && uid ∉ unit_set
+            next!(prog); continue
         end
+        fr = firing_rate_hz(spk)
+        if fr > min_fr_hz
+            mat = bin_spikes_to_matrix(spk, intervals; binsize=binsize)
+            push!(matrices, mat)
+            push!(frs_hz, fr)
+            push!(kept_ids, uid)
+        end
+        next!(prog)
     end
+    finish!(prog)
 
-    println("Kept $(length(kept_ids)) / $(length(spk_times)) neurons (min_fr=$min_fr spikes/bin)")
-    return matrices, frs, kept_ids
+    n_sel = isnothing(unit_set) ? length(spk_times) : length(unit_set)
+    println("Kept $(length(kept_ids)) / $n_sel neurons (min_fr=$(min_fr_hz) Hz)")
+    return matrices, frs_hz, kept_ids
 end
 
 """
-    crop_to_window(matrices, binsize; win_sz=0.1)
+    crop_to_window(matrices; win_bins)
 
-Crop [n_time × n_trials] spike matrices to a ±win_sz window around epoch start.
-Reduces n_time from epoch_duration/binsize to 2*win_sz/binsize.
-This dramatically reduces FFT size and speeds up computation.
+Crop [n_time × n_trials] spike matrices to the first win_bins bins.
 """
 function crop_to_window(
     matrices::Vector{Matrix{Float64}};
     n_time_full::Int,
     win_bins::Int
 )
-    # Take only first win_bins bins (already aligned to epoch start)
     return [m[1:win_bins, :] for m in matrices]
 end
