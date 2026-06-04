@@ -26,7 +26,8 @@ const CONFIG = (
     binsize    = 0.0005,   # 0.5ms
     jitter_win = 50,       # 25ms → 50 bins at 0.5ms
     min_fr_hz  = 1.0,      # minimum firing rate in Hz
-    chunk_dur  = 3.0,      # seconds per chunk in whole-recording mode
+    chunk_dur     = 3.0,   # seconds per chunk in whole-recording mode
+    n_intervals   = 200,   # randomly sample this many chunks; nothing = all
     units      = nothing,  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
 
     # Significance thresholds (Siegle et al.)
@@ -58,7 +59,7 @@ function process_recording(cfg, nwb_file)
 
     # ── Resolve intervals ─────────────────────────────────────────────────
     intervals    = isnothing(cfg.intervals) ?
-        whole_recording_intervals(spk_times; chunk_duration=cfg.chunk_dur) : cfg.intervals
+        whole_recording_intervals(spk_times; chunk_duration=cfg.chunk_dur, max_intervals=cfg.n_intervals) : cfg.intervals
     n_trials     = size(intervals, 1)
     epoch_dur_ms = round((intervals[1, 2] - intervals[1, 1]) * 1000, digits=1)
     win_bins     = round(Int, (intervals[1, 2] - intervals[1, 1]) / cfg.binsize)

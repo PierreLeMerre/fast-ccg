@@ -1,5 +1,6 @@
 using HDF5
 using Statistics
+using Random
 using ProgressMeter
 
 """
@@ -64,23 +65,31 @@ function chunk_intervals(t_start::Float64, t_end::Float64; chunk_duration::Float
 end
 
 """
-    whole_recording_intervals(spk_times; chunk_duration=3.0)
+    whole_recording_intervals(spk_times; chunk_duration=3.0, max_intervals=nothing)
 
 Build intervals covering the whole recording by chunking 0 → t_last into
 windows of `chunk_duration` seconds (default 3 s).
 
-Use `chunk_duration=Inf` to get a single interval if you really want one giant
-window — but that will use enormous memory for long recordings.
+If `max_intervals` is an integer, randomly sample that many chunks (without
+replacement). Use `nothing` to keep all chunks.
+
+Use `chunk_duration=Inf` to get a single interval — not recommended for long recordings.
 
 Returns a Matrix{Float64} [n_chunks × 2].
 """
 function whole_recording_intervals(
     spk_times::Vector{Vector{Float64}};
-    chunk_duration::Float64 = 3.0
+    chunk_duration::Float64 = 3.0,
+    max_intervals::Union{Int, Nothing} = nothing
 )
     t_end = maximum(maximum(s) for s in spk_times if !isempty(s))
     isinf(chunk_duration) && return [0.0  t_end]
-    return chunk_intervals(0.0, t_end; chunk_duration=chunk_duration)
+    ivs = chunk_intervals(0.0, t_end; chunk_duration=chunk_duration)
+    if !isnothing(max_intervals) && max_intervals < size(ivs, 1)
+        idx = sort(randperm(size(ivs, 1))[1:max_intervals])
+        ivs = ivs[idx, :]
+    end
+    return ivs
 end
 
 """

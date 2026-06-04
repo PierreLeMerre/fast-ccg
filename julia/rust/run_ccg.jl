@@ -18,6 +18,7 @@ const BINSIZE       = 0.0005  # 0.5ms bins
 const MIN_FR_HZ     = 0.1     # minimum firing rate in Hz
 const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
 const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
+const N_INTERVALS   = 200     # randomly sample this many chunks; nothing = all
 const UNITS         = nothing # restrict to specific unit IDs, e.g. [1, 44, 67] or a range [51:100]; nothing = all
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ spk_times, unit_ids = load_spike_times(NWB_PATH)
 println("  $(length(spk_times)) units loaded")
 
 intervals = isnothing(INTERVALS) ?
-    whole_recording_intervals(spk_times; chunk_duration=CHUNK_DUR) : INTERVALS
+    whole_recording_intervals(spk_times; chunk_duration=CHUNK_DUR, max_intervals=N_INTERVALS) : INTERVALS
 n_trials_raw  = size(intervals, 1)
 epoch_dur_ms  = round((intervals[1, 2] - intervals[1, 1]) * 1000, digits=1)
 win_bins      = round(Int, (intervals[1, 2] - intervals[1, 1]) / BINSIZE)
