@@ -149,7 +149,7 @@ Arguments:
 
 Returns:
   matrices  : Vector{Matrix{Float64}} — spike matrices, one per kept neuron
-  frs_hz    : Vector{Float64} — firing rate in Hz per kept neuron
+  frs_spb   : Vector{Float64} — firing rate in spikes/bin per kept neuron (for Rust FFI)
   kept_ids  : Vector — unit IDs of kept neurons
 """
 function prepare_all_neurons(
@@ -165,7 +165,7 @@ function prepare_all_neurons(
     ))
 
     matrices = Matrix{Float64}[]
-    frs_hz   = Float64[]
+    frs_spb  = Float64[]   # spikes/bin — what Rust expects for normalisation
     kept_ids = []
 
     prog = Progress(length(spk_times); desc="Binning neurons: ", showspeed=true)
@@ -174,11 +174,12 @@ function prepare_all_neurons(
         if !isnothing(unit_set) && uid ∉ unit_set
             next!(prog); continue
         end
-        fr = firing_rate_hz(spk)
-        if fr > min_fr_hz
+        # Filter on Hz (meaningful, bin-size-independent)
+        fr_hz = firing_rate_hz(spk)
+        if fr_hz > min_fr_hz
             mat = bin_spikes_to_matrix(spk, intervals; binsize=binsize)
             push!(matrices, mat)
-            push!(frs_hz, fr)
+            push!(frs_spb, mean(mat))   # spikes/bin for Rust normalisation
             push!(kept_ids, uid)
         end
         next!(prog)
@@ -187,7 +188,7 @@ function prepare_all_neurons(
 
     n_sel = isnothing(unit_set) ? length(spk_times) : length(unit_set)
     println("Kept $(length(kept_ids)) / $n_sel neurons (min_fr=$(min_fr_hz) Hz)")
-    return matrices, frs_hz, kept_ids
+    return matrices, frs_spb, kept_ids
 end
 
 """
