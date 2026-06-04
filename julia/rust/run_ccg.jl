@@ -15,7 +15,7 @@ const NWB_PATH  = "/Volumes/MorseSSD/NPX_Database/frozen_Aversion_Nat_Submission
 # Example: const INTERVALS = [0.0 10.0; 20.0 30.0; 50.0 60.0]
 const INTERVALS = nothing
 const BINSIZE       = 0.0005  # 0.5ms bins
-const MIN_FR_HZ     = 0.1     # minimum firing rate in Hz
+const MIN_FR_HZ     = 1.0     # minimum firing rate in Hz
 const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
 const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
 const N_INTERVALS   = 200     # randomly sample this many chunks; nothing = all
@@ -97,21 +97,26 @@ println("\n  Total significant: $(sum(is_sig)) / $n_pairs pairs ($(round(100*sum
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 println("\nSaving results...")
-h5open("ccg_results.h5", "w") do f
-    f["raw"]        = raw
-    f["corrected"]  = corrected
-    f["lags_ms"]    = lags_ms
-    f["kept_ids"]   = Int.(kept_ids)
-    f["pairs_i"]    = [p[1] for p in pairs]
-    f["pairs_m"]    = [p[2] for p in pairs]
-    f["is_sig"]     = Float64.(is_sig)
-    f["peak_lags"]  = peak_lags_sig
-    f["peak_zs"]    = peak_zs
-    f["binsize_ms"] = BINSIZE * 1000
-    f["win_sz_ms"]  = epoch_dur_ms
-    f["jitter_win"] = Float64(JITTER_WIN)
-    f["n_neurons"]  = Float64(n_neurons)
-    f["n_trials"]   = Float64(n_trials)
+
+if n_pairs == 0
+    println("  ⚠ No pairs to save (fewer than 2 neurons passed the firing rate filter).")
+else
+    h5open("ccg_results.h5", "w") do f
+        f["raw"]        = raw
+        f["corrected"]  = corrected
+        f["lags_ms"]    = lags_ms
+        f["kept_ids"]   = Int.(kept_ids)
+        f["pairs_i"]    = Int.([p[1] for p in pairs])
+        f["pairs_m"]    = Int.([p[2] for p in pairs])
+        f["is_sig"]     = Float64.(is_sig)
+        f["peak_lags"]  = peak_lags_sig
+        f["peak_zs"]    = peak_zs
+        f["binsize_ms"] = BINSIZE * 1000
+        f["win_sz_ms"]  = epoch_dur_ms
+        f["jitter_win"] = Float64(JITTER_WIN)
+        f["n_neurons"]  = Float64(n_neurons)
+        f["n_trials"]   = Float64(n_trials)
+    end
+    println("  Saved → ccg_results.h5")
 end
-println("  Saved → ccg_results.h5")
 println("\nDone. $(sum(is_sig)) significant pairs out of $n_pairs total.")

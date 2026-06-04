@@ -114,8 +114,8 @@ function process_recording(cfg, nwb_file)
     sig_idx       = findall(is_sig)
     raw_sig       = isempty(sig_idx) ? zeros(size(raw,1), 0) : raw[:, sig_idx]
     corrected_sig = isempty(sig_idx) ? zeros(size(raw,1), 0) : corrected[:, sig_idx]
-    pairs_i_sig   = [pairs[k][1] for k in sig_idx]
-    pairs_m_sig   = [pairs[k][2] for k in sig_idx]
+    pairs_i_sig   = Int.([pairs[k][1] for k in sig_idx])
+    pairs_m_sig   = Int.([pairs[k][2] for k in sig_idx])
     unit_i_sig    = Int.([kept_ids[pairs[k][1]] for k in sig_idx])
     unit_m_sig    = Int.([kept_ids[pairs[k][2]] for k in sig_idx])
 
