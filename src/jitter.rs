@@ -96,9 +96,8 @@ pub fn ccg_pair(
     fr_m:          f64,
     jitter_window: usize,
 ) -> Vec<f64> {
-    let n_time   = spikes_i.nrows();
-    let n_trials = spikes_i.ncols();
-    let nfft     = nextpow2(2 * n_time);
+    let n_time = spikes_i.nrows();
+    let nfft   = nextpow2(2 * n_time);
     let target   = make_target(n_time, nfft);
     let theta    = make_theta(n_time);
 
@@ -111,10 +110,13 @@ pub fn ccg_pair(
     let jittered_m = jitter_2d(spikes_m, jitter_window);
     let jitter_ccg = mean_xcorr_fast(&jittered_i, &jittered_m, &plans, &target);
 
-    // Geometric mean normalization
-    let total_i   = fr_i * (n_time * n_trials) as f64;
-    let total_m   = fr_m * (n_time * n_trials) as f64;
-    let geom_mean = (total_i * total_m).sqrt();
+    // Geometric mean of per-bin firing rates — gives corrected CCG in units of
+    // excess coincidences per bin normalised by sqrt(FR_i * FR_m).
+    // NOTE: raw_ccg already carries a 1/nfft scale from mean_xcorr_fast, so
+    // corrected values will be of order p/nfft for a connection with
+    // transmission probability p — small in absolute terms but the z-score
+    // is computed within the corrected CCG's own scale, so that is fine.
+    let geom_mean = (fr_i * fr_m).sqrt();
 
     let corrected: Vec<f64> = raw_ccg.iter()
         .zip(jitter_ccg.iter())
