@@ -30,11 +30,12 @@ const CONFIG = (
     n_intervals   = 200,   # randomly sample this many chunks; nothing = all
     units      = nothing,  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
 
-    # Significance thresholds (Siegle et al.)
-    peak_window_ms = 10.0,
-    baseline_lo_ms = 50.0,
-    baseline_hi_ms = 100.0,
-    threshold_sd   = 7.0,
+    # Significance thresholds
+    peak_window_ms   = 10.0,
+    baseline_lo_ms   = 50.0,
+    baseline_hi_ms   = 100.0,
+    threshold_sd     = 7.0,
+    neg_threshold_sd = 3.0,
 )
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -98,64 +99,59 @@ function process_recording(cfg, nwb_file)
 
     # ── Significance testing ──────────────────────────────────────────────
     println("  Testing significance...")
-    is_sig, peak_lags_sig, peak_zs = test_significance(
+    is_sig_ex, is_sig_in, peak_lags, peak_zs, trough_lags, trough_zs = test_significance(
         corrected, lags_ms;
-        peak_window_ms = cfg.peak_window_ms,
-        baseline_lo_ms = cfg.baseline_lo_ms,
-        baseline_hi_ms = cfg.baseline_hi_ms,
-        threshold_sd   = cfg.threshold_sd,
-        binsize_ms     = cfg.binsize * 1000
+        peak_window_ms   = cfg.peak_window_ms,
+        baseline_lo_ms   = cfg.baseline_lo_ms,
+        baseline_hi_ms   = cfg.baseline_hi_ms,
+        threshold_sd     = cfg.threshold_sd,
+        neg_threshold_sd = cfg.neg_threshold_sd,
+        binsize_ms       = cfg.binsize * 1000
     )
-    n_sig = sum(is_sig)
-    println(@sprintf "    %d / %d significant pairs (%.1f%%)" n_sig n_pairs 100*n_sig/n_pairs)
+    is_sig_any = is_sig_ex .| is_sig_in
+    n_sig      = sum(is_sig_any)
+    println(@sprintf "    %d excitatory  |  %d inhibitory  |  %d / %d total" sum(is_sig_ex) sum(is_sig_in) n_sig n_pairs)
 
     # ── Save — only significant pairs ─────────────────────────────────────
     println("  Saving → $out_path")
-    sig_idx       = findall(is_sig)
-    raw_sig       = isempty(sig_idx) ? zeros(size(raw,1), 0) : raw[:, sig_idx]
-    corrected_sig = isempty(sig_idx) ? zeros(size(raw,1), 0) : corrected[:, sig_idx]
-    pairs_i_sig   = Int.([pairs[k][1] for k in sig_idx])
-    pairs_m_sig   = Int.([pairs[k][2] for k in sig_idx])
-    unit_i_sig    = Int.([kept_ids[pairs[k][1]] for k in sig_idx])
-    unit_m_sig    = Int.([kept_ids[pairs[k][2]] for k in sig_idx])
+    sig_idx    = findall(is_sig_any)
+    unit_i_sig = Int.([kept_ids[pairs[k][1]] for k in sig_idx])
+    unit_m_sig = Int.([kept_ids[pairs[k][2]] for k in sig_idx])
 
     mkpath(dirname(out_path))
     h5open(out_path, "w") do f
-        # Significant CCGs with compression
         if !isempty(sig_idx)
-            chunk = (size(raw_sig, 1), 1)
+            ccg_len = size(raw, 1)
+            chunk   = (ccg_len, 1)
             d_raw = create_dataset(f, "raw", datatype(Float64),
-                dataspace(size(raw_sig)...), chunk=chunk, deflate=3)
-            write(d_raw, raw_sig)
+                dataspace(ccg_len, n_sig), chunk=chunk, deflate=3)
+            write(d_raw, raw[:, sig_idx])
             d_cor = create_dataset(f, "corrected", datatype(Float64),
-                dataspace(size(corrected_sig)...), chunk=chunk, deflate=3)
-            write(d_cor, corrected_sig)
+                dataspace(ccg_len, n_sig), chunk=chunk, deflate=3)
+            write(d_cor, corrected[:, sig_idx])
         end
 
-        # Metadata
-        f["lags_ms"]       = lags_ms
-        f["kept_ids"]      = Int.(kept_ids)
-        f["pairs_i"]       = pairs_i_sig
-        f["pairs_m"]       = pairs_m_sig
-        f["unit_i"]        = unit_i_sig
-        f["unit_m"]        = unit_m_sig
-        f["peak_lags"]     = [peak_lags_sig[k] for k in sig_idx]
-        f["peak_zs"]       = [peak_zs[k]       for k in sig_idx]
-        f["is_sig"]        = Float64.(is_sig)
-        f["all_peak_zs"]   = peak_zs
-        f["all_peak_lags"] = peak_lags_sig
+        f["lags_ms"]        = lags_ms
+        f["kept_ids"]       = Int.(kept_ids)
+        f["unit_i"]         = unit_i_sig
+        f["unit_m"]         = unit_m_sig
+        f["is_excitatory"]  = Float64.(is_sig_ex[sig_idx])
+        f["is_inhibitory"]  = Float64.(is_sig_in[sig_idx])
+        f["peak_lags"]      = peak_lags[sig_idx]
+        f["peak_zs"]        = peak_zs[sig_idx]
+        f["trough_lags"]    = trough_lags[sig_idx]
+        f["trough_zs"]      = trough_zs[sig_idx]
 
-        # Recording info
-        f["filename"]      = filename
-        f["n_neurons"]     = Float64(n_neurons)
-        f["n_pairs"]       = Float64(n_pairs)
-        f["n_sig"]         = Float64(n_sig)
-        f["n_trials"]      = Float64(n_trials_mat)
-        f["n_time"]        = Float64(n_time)
-        f["epoch_dur_ms"]  = epoch_dur_ms
-        f["binsize_ms"]    = cfg.binsize * 1000
-        f["jitter_win"]    = Float64(cfg.jitter_win)
-        f["t_elapsed"]     = t_elapsed
+        f["filename"]       = filename
+        f["n_neurons"]      = Float64(n_neurons)
+        f["n_pairs"]        = Float64(n_pairs)
+        f["n_sig"]          = Float64(n_sig)
+        f["n_trials"]       = Float64(n_trials_mat)
+        f["n_time"]         = Float64(n_time)
+        f["epoch_dur_ms"]   = epoch_dur_ms
+        f["binsize_ms"]     = cfg.binsize * 1000
+        f["jitter_win"]     = Float64(cfg.jitter_win)
+        f["t_elapsed"]      = t_elapsed
     end
 
     println(@sprintf "    Saved %d significant pairs" n_sig)

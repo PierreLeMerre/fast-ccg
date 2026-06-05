@@ -17,34 +17,26 @@ const N_RANDOM = nothing
 # ── Load results ──────────────────────────────────────────────────────────────
 println("Loading CCG results...")
 h5open(RESULTS_FILE, "r") do f
-    global raw       = read(f["raw"])
-    global corrected = read(f["corrected"])
-    global lags_ms   = read(f["lags_ms"])
-    global kept_ids  = read(f["kept_ids"])
-    global pairs_i   = read(f["pairs_i"])
-    global pairs_m   = read(f["pairs_m"])
-    global is_sig    = Bool.(read(f["is_sig"]))
-    global peak_lags = read(f["peak_lags"])
-    global peak_zs   = read(f["peak_zs"])
+    global raw          = read(f["raw"])
+    global corrected    = read(f["corrected"])
+    global lags_ms      = read(f["lags_ms"])
+    global unit_i       = read(f["unit_i"])
+    global unit_m       = read(f["unit_m"])
+    global is_excitatory = Bool.(read(f["is_excitatory"]))
+    global is_inhibitory = Bool.(read(f["is_inhibitory"]))
+    global peak_lags    = read(f["peak_lags"])
+    global peak_zs      = read(f["peak_zs"])
+    global trough_lags  = read(f["trough_lags"])
+    global trough_zs    = read(f["trough_zs"])
 end
 
-pairs   = collect(zip(pairs_i, pairs_m))
+# File contains only significant pairs — all indices are valid
 n_pairs = size(raw, 2)
-sig_idx = findall(is_sig)
-println("Loaded $n_pairs pairs  |  $(length(sig_idx)) significant")
+println("Loaded $n_pairs significant pairs  ($(sum(is_excitatory)) excitatory, $(sum(is_inhibitory)) inhibitory)")
 
 # ── Select pairs to plot ──────────────────────────────────────────────────────
-function select_pairs(n_random, sig_idx, n_pairs)
-    if isnothing(n_random)
-        isempty(sig_idx) && error("No significant pairs found — use N_RANDOM to plot a sample instead.")
-        return sig_idx, "significant"
-    else
-        n  = min(n_random, n_pairs)
-        return sort(randperm(n_pairs)[1:n]), "random_$(n)"
-    end
-end
-
-plot_idx, label = select_pairs(N_RANDOM, sig_idx, n_pairs)
+plot_idx = isnothing(N_RANDOM) ? collect(1:n_pairs) : sort(randperm(n_pairs)[1:min(N_RANDOM, n_pairs)])
+label    = isnothing(N_RANDOM) ? "significant" : "random_$(length(plot_idx))"
 println("Plotting $(length(plot_idx)) pairs  ($label)")
 
 # ── Single-pair plot ──────────────────────────────────────────────────────────
@@ -52,20 +44,24 @@ const BASELINE_LO = 50.0
 const BASELINE_HI = 100.0
 const PEAK_WIN    = 10.0
 
-function plot_ccg_pair(k, lags_ms, raw, corrected, pairs, kept_ids, peak_lags, peak_zs, is_sig; show_legend=false)
-    i, m    = pairs[k]
-    unit_i  = kept_ids[i]
-    unit_m  = kept_ids[m]
-    raw_k   = raw[:, k]
-    cor_k   = corrected[:, k]
+function plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
+                       peak_lags, peak_zs, trough_lags, trough_zs,
+                       is_excitatory, is_inhibitory; show_legend=false)
+    raw_k = raw[:, k]
+    cor_k = corrected[:, k]
 
     baseline_mask = (abs.(lags_ms) .> BASELINE_LO) .& (abs.(lags_ms) .< BASELINE_HI)
     bl_mean = mean(cor_k[baseline_mask])
     bl_sd   = std(cor_k[baseline_mask])
 
-    sig_marker = is_sig[k] ? " ✓" : ""
-    title_str  = @sprintf("u%d–u%d  z=%.1f  peak=%+.1fms%s",
-                          unit_i, unit_m, peak_zs[k], peak_lags[k], sig_marker)
+    type_str = is_excitatory[k] && is_inhibitory[k] ? " EI" :
+               is_excitatory[k] ? " E" :
+               is_inhibitory[k] ? " I" : ""
+    title_str = @sprintf("u%d–u%d  z=%.1f/%+.1f  (%+.1f/%+.1fms)%s",
+                         unit_i[k], unit_m[k],
+                         peak_zs[k], trough_zs[k],
+                         peak_lags[k], trough_lags[k], type_str)
+    cor_color = is_inhibitory[k] && !is_excitatory[k] ? :royalblue : :crimson
 
     p = plot(
         lags_ms, raw_k;
@@ -91,7 +87,7 @@ function plot_ccg_pair(k, lags_ms, raw, corrected, pairs, kept_ids, peak_lags, p
 
     plot!(p, lags_ms, cor_k;
         label     = "jitter-corrected",
-        color     = :crimson,
+        color     = cor_color,
         linewidth = 1.5,
     )
 
@@ -102,8 +98,9 @@ function plot_ccg_pair(k, lags_ms, raw, corrected, pairs, kept_ids, peak_lags, p
     # Peak search window
     vspan!(p, [-PEAK_WIN, PEAK_WIN]; color=:orange, alpha=0.08, label=false)
 
-    # 7 SD threshold
-    hline!(p, [bl_mean + 7*bl_sd]; color=:crimson, linestyle=:dash, linewidth=0.8, label=false)
+    # Excitatory threshold (7 SD) and inhibitory threshold (-3 SD)
+    hline!(p, [bl_mean + 7*bl_sd]; color=:crimson,    linestyle=:dash, linewidth=0.8, label=false)
+    hline!(p, [bl_mean - 3*bl_sd]; color=:royalblue,  linestyle=:dash, linewidth=0.8, label=false)
 
     # Baseline mean
     hline!(p, [bl_mean]; color=:gray, linestyle=:dot, linewidth=0.8, label=false)
@@ -122,7 +119,9 @@ for page in 1:n_pages
     page_pairs = plot_idx[idx_range]
 
     plots = [
-        plot_ccg_pair(k, lags_ms, raw, corrected, pairs, kept_ids, peak_lags, peak_zs, is_sig;
+        plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
+                      peak_lags, peak_zs, trough_lags, trough_zs,
+                      is_excitatory, is_inhibitory;
                       show_legend = (k == page_pairs[1]))
         for k in page_pairs
     ]
