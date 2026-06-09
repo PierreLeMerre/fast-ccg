@@ -3,13 +3,16 @@ module CCG
 using Libdl
 using Statistics
 
+# Mirror Rust's nextpow2 to compute the nfft used internally
+nextpow2_julia(n::Int) = (p = 1; while p < n; p <<= 1; end; p)
+
 const LIB_PATH = joinpath(@__DIR__, "..", "..", "target", "release", "libcross_correlogram.dylib")
 const lib = Libdl.dlopen(LIB_PATH)
 
 """
     ccg_pair(spikes_i, spikes_m, fr_i, fr_m; jitter_window=25)
 
-Compute raw and jitter-corrected cross-correlogram for one neuron pair.
+Compute raw, jitter and jitter-corrected cross-correlogram for one neuron pair.
 
 Arguments:
   spikes_i, spikes_m : [n_time × n_trials] Float64 binary spike matrices
@@ -17,9 +20,10 @@ Arguments:
   jitter_window      : jitter window in bins (default 25)
 
 Returns:
-  raw       : Vector{Float64} length 2*n_time-1, raw CCG averaged over trials
-  corrected : Vector{Float64} length 2*n_time-1, jitter-corrected and normalized
-  lags      : Vector{Int}, lag values in bins corresponding to each index
+  raw       : Vector{Float64} length 2*n_time-1, mean coincidences per trial
+  jitter    : Vector{Float64} length 2*n_time-1, jitter predictor (mean coincidences per trial)
+  corrected : Vector{Float64} length 2*n_time-1, dimensionless normalised excess
+  lags      : Vector{Int}, lag values in bins
 """
 function ccg_pair(
     spikes_i::Matrix{Float64},
@@ -30,8 +34,9 @@ function ccg_pair(
 )
     n_time, n_trials = size(spikes_i)
     ccg_len = 2 * n_time - 1
+    nfft    = nextpow2_julia(2 * n_time)
 
-    out = Vector{Float64}(undef, 2 * ccg_len)
+    out = Vector{Float64}(undef, 3 * ccg_len)
 
     ccall(
         Libdl.dlsym(lib, :ccg_pair_ffi), Cvoid,
@@ -44,19 +49,20 @@ function ccg_pair(
         spikes_m, n_time, n_trials,
         fr_i, fr_m,
         jitter_window,
-        out, 2 * ccg_len
+        out, 3 * ccg_len
     )
 
-    raw       = out[1:ccg_len]
-    corrected = out[ccg_len+1:end]
+    raw       = out[1:ccg_len]             .* nfft
+    jitter    = out[ccg_len+1:2*ccg_len]   .* nfft
+    corrected = out[2*ccg_len+1:end]       .* nfft
     lags      = collect(-(n_time-1):(n_time-1))
-    return raw, corrected, lags
+    return raw, jitter, corrected, lags
 end
 
 """
     compute_all_pairs(spikes, firing_rates; jitter_window=25)
 
-Compute raw and jitter-corrected CCG for all neuron pairs in parallel.
+Compute raw, jitter and jitter-corrected CCG for all neuron pairs in parallel.
 
 Arguments:
   spikes        : Vector of [n_time × n_trials] matrices, one per neuron
@@ -64,8 +70,9 @@ Arguments:
   jitter_window : jitter window in bins (default 25)
 
 Returns:
-  raw       : Matrix{Float64} [ccg_len × n_pairs]
-  corrected : Matrix{Float64} [ccg_len × n_pairs]
+  raw       : Matrix{Float64} [ccg_len × n_pairs] — mean coincidences per trial
+  jitter    : Matrix{Float64} [ccg_len × n_pairs] — jitter predictor (mean coincidences per trial)
+  corrected : Matrix{Float64} [ccg_len × n_pairs] — dimensionless normalised excess
   pairs     : Vector of (i, m) tuples — neuron indices for each column
   lags      : Vector{Int} — lag values in bins
 """
@@ -78,11 +85,12 @@ function compute_all_pairs(
     n_time, n_trials = size(spikes[1])
     ccg_len          = 2 * n_time - 1
     n_pairs          = n_neurons * (n_neurons - 1) ÷ 2
+    nfft             = nextpow2_julia(2 * n_time)
 
     spikes_flat = reduce(hcat, [vec(s) for s in spikes])
     spikes_flat = Float64.(spikes_flat)
 
-    out = Matrix{Float64}(undef, 2 * ccg_len, n_pairs)
+    out = Matrix{Float64}(undef, 3 * ccg_len, n_pairs)
 
     ccall(
         Libdl.dlsym(lib, :compute_all_pairs_ffi), Cvoid,
@@ -93,14 +101,15 @@ function compute_all_pairs(
         spikes_flat, n_time, n_trials, n_neurons,
         firing_rates,
         jitter_window,
-        out, 2 * ccg_len * n_pairs
+        out, 3 * ccg_len * n_pairs
     )
 
-    raw       = out[1:ccg_len, :]
-    corrected = out[ccg_len+1:end, :]
+    raw       = out[1:ccg_len, :]             .* nfft
+    jitter    = out[ccg_len+1:2*ccg_len, :]   .* nfft
+    corrected = out[2*ccg_len+1:end, :]       .* nfft
     pairs     = [(i, m) for i in 1:n_neurons for m in (i+1):n_neurons]
     lags      = collect(-(n_time-1):(n_time-1))
-    return raw, corrected, pairs, lags
+    return raw, jitter, corrected, pairs, lags
 end
 
 end # module

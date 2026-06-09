@@ -17,17 +17,19 @@ const N_RANDOM = nothing
 # ── Load results ──────────────────────────────────────────────────────────────
 println("Loading CCG results...")
 h5open(RESULTS_FILE, "r") do f
-    global raw          = read(f["raw"])
-    global corrected    = read(f["corrected"])
-    global lags_ms      = read(f["lags_ms"])
-    global unit_i       = read(f["unit_i"])
-    global unit_m       = read(f["unit_m"])
+    global raw           = read(f["raw"])
+    global jitter        = read(f["jitter"])
+    global corrected     = read(f["corrected"])
+    global lags_ms       = read(f["lags_ms"])
+    global unit_i        = read(f["unit_i"])
+    global unit_m        = read(f["unit_m"])
     global is_excitatory = Bool.(read(f["is_excitatory"]))
     global is_inhibitory = Bool.(read(f["is_inhibitory"]))
-    global peak_lags    = read(f["peak_lags"])
-    global peak_zs      = read(f["peak_zs"])
-    global trough_lags  = read(f["trough_lags"])
-    global trough_zs    = read(f["trough_zs"])
+    global peak_lags     = read(f["peak_lags"])
+    global peak_zs       = read(f["peak_zs"])
+    global trough_lags   = read(f["trough_lags"])
+    global trough_zs     = read(f["trough_zs"])
+    global tp            = read(f["tp"])
 end
 
 # File contains only significant pairs — all indices are valid
@@ -44,10 +46,11 @@ const BASELINE_LO = 50.0
 const BASELINE_HI = 100.0
 const PEAK_WIN    = 10.0
 
-function plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
-                       peak_lags, peak_zs, trough_lags, trough_zs,
+function plot_ccg_pair(k, lags_ms, raw, jitter, corrected, unit_i, unit_m,
+                       peak_lags, peak_zs, trough_lags, trough_zs, tp,
                        is_excitatory, is_inhibitory; show_legend=false)
     raw_k = raw[:, k]
+    jit_k = jitter[:, k]
     cor_k = corrected[:, k]
 
     baseline_mask = (abs.(lags_ms) .> BASELINE_LO) .& (abs.(lags_ms) .< BASELINE_HI)
@@ -57,10 +60,11 @@ function plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
     type_str = is_excitatory[k] && is_inhibitory[k] ? " EI" :
                is_excitatory[k] ? " E" :
                is_inhibitory[k] ? " I" : ""
-    title_str = @sprintf("u%d–u%d  z=%.1f/%+.1f  (%+.1f/%+.1fms)%s",
+    tp_str = is_excitatory[k] ? @sprintf(" TP=%.3f", tp[k]) : ""
+    title_str = @sprintf("u%d–u%d  z=%.1f/%+.1f  (%+.1f/%+.1fms)%s%s",
                          unit_i[k], unit_m[k],
                          peak_zs[k], trough_zs[k],
-                         peak_lags[k], trough_lags[k], type_str)
+                         peak_lags[k], trough_lags[k], type_str, tp_str)
     cor_color = is_inhibitory[k] && !is_excitatory[k] ? :royalblue : :crimson
 
     p = plot(
@@ -85,6 +89,12 @@ function plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
         framestyle = :box,
     )
 
+    plot!(p, lags_ms, jit_k;
+        label     = "jitter",
+        color     = :forestgreen,
+        linewidth = 0.8,
+        linestyle = :dot,
+    )
     plot!(p, lags_ms, cor_k;
         label     = "jitter-corrected",
         color     = cor_color,
@@ -119,8 +129,8 @@ for page in 1:n_pages
     page_pairs = plot_idx[idx_range]
 
     plots = [
-        plot_ccg_pair(k, lags_ms, raw, corrected, unit_i, unit_m,
-                      peak_lags, peak_zs, trough_lags, trough_zs,
+        plot_ccg_pair(k, lags_ms, raw, jitter, corrected, unit_i, unit_m,
+                      peak_lags, peak_zs, trough_lags, trough_zs, tp,
                       is_excitatory, is_inhibitory;
                       show_legend = (k == page_pairs[1]))
         for k in page_pairs

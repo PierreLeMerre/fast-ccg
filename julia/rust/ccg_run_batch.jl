@@ -89,7 +89,7 @@ function process_recording(cfg, nwb_file)
     # ── Compute CCG ───────────────────────────────────────────────────────
     println("  Computing CCGs (Rust, parallel)...")
     t_start = time()
-    raw, corrected, pairs, lags = CCG.compute_all_pairs(
+    raw, jitter, corrected, pairs, lags = CCG.compute_all_pairs(
         matrices, frs; jitter_window=cfg.jitter_win
     )
     t_elapsed = time() - t_start
@@ -99,14 +99,17 @@ function process_recording(cfg, nwb_file)
 
     # ── Significance testing ──────────────────────────────────────────────
     println("  Testing significance...")
-    is_sig_ex, is_sig_in, peak_lags, peak_zs, trough_lags, trough_zs = test_significance(
-        corrected, lags_ms;
+    n_spikes     = [sum(matrices[i]) for i in 1:n_neurons]
+    pairs_tuples = [(p[1], p[2]) for p in pairs]
+    is_sig_ex, is_sig_in, peak_lags, peak_zs, trough_lags, trough_zs, tp = test_significance(
+        raw, jitter, corrected, lags_ms,
+        Int.(round.(n_spikes)), n_trials_mat, pairs_tuples;
         peak_window_ms   = cfg.peak_window_ms,
         baseline_lo_ms   = cfg.baseline_lo_ms,
         baseline_hi_ms   = cfg.baseline_hi_ms,
         threshold_sd     = cfg.threshold_sd,
         neg_threshold_sd = cfg.neg_threshold_sd,
-        binsize_ms       = cfg.binsize * 1000
+        zero_lag_ms      = 0.8
     )
     is_sig_any = is_sig_ex .| is_sig_in
     n_sig      = sum(is_sig_any)
@@ -123,12 +126,13 @@ function process_recording(cfg, nwb_file)
         if !isempty(sig_idx)
             ccg_len = size(raw, 1)
             chunk   = (ccg_len, 1)
-            d_raw = create_dataset(f, "raw", datatype(Float64),
-                dataspace(ccg_len, n_sig), chunk=chunk, deflate=3)
-            write(d_raw, raw[:, sig_idx])
-            d_cor = create_dataset(f, "corrected", datatype(Float64),
-                dataspace(ccg_len, n_sig), chunk=chunk, deflate=3)
-            write(d_cor, corrected[:, sig_idx])
+            for (name, data) in [("raw", raw[:, sig_idx]),
+                                  ("jitter", jitter[:, sig_idx]),
+                                  ("corrected", corrected[:, sig_idx])]
+                ds = create_dataset(f, name, datatype(Float64),
+                    dataspace(ccg_len, n_sig), chunk=chunk, deflate=3)
+                write(ds, data)
+            end
         end
 
         f["lags_ms"]        = lags_ms
@@ -141,6 +145,7 @@ function process_recording(cfg, nwb_file)
         f["peak_zs"]        = peak_zs[sig_idx]
         f["trough_lags"]    = trough_lags[sig_idx]
         f["trough_zs"]      = trough_zs[sig_idx]
+        f["tp"]             = tp[sig_idx]
 
         f["filename"]       = filename
         f["n_neurons"]      = Float64(n_neurons)
@@ -173,9 +178,7 @@ println("="^60)
 println("CCG BATCH PROCESSING")
 println("="^60)
 println("NWB source : $(CONFIG.nwb_src)")
-println("TSEL source: $(CONFIG.tsel_src)")
 println("Destination: $(CONFIG.dest)")
-println("Epoch      : $(CONFIG.epoch) / $(CONFIG.state) / $(CONFIG.stimtype) / $(CONFIG.duration)s")
 println("Found      : $(length(nwb_files)) NWB files")
 println("="^60)
 

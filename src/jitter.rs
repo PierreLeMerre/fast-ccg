@@ -128,6 +128,7 @@ pub fn ccg_pair(
         .collect();
 
     let mut out = raw_ccg;
+    out.extend(jitter_ccg);
     out.extend(corrected);
     out
 }

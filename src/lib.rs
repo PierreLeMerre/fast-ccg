@@ -17,7 +17,7 @@ pub extern "C" fn ccg_pair_ffi(
     fr_m: f64,
     jitter_window: usize,
     out_ptr: *mut f64,
-    out_len: usize,  // should be 2 * (2*n_time - 1)
+    out_len: usize,  // should be 3 * (2*n_time - 1)  — [raw | jitter | corrected]
 ) {
     let spikes_i_slice = unsafe {
         std::slice::from_raw_parts(spikes_i_ptr, n_time_i * n_trials_i)
@@ -53,7 +53,7 @@ pub extern "C" fn compute_all_pairs_ffi(
     fr_ptr: *const f64,
     jitter_window: usize,
     out_ptr: *mut f64,
-    out_len: usize,  // should be 2 * ccg_len * n_pairs
+    out_len: usize,  // should be 3 * ccg_len * n_pairs  — [raw | jitter | corrected] per pair
 ) {
     let spikes_flat = unsafe {
         std::slice::from_raw_parts(spikes_ptr, n_time * n_trials * n_neurons)
@@ -79,7 +79,7 @@ pub extern "C" fn compute_all_pairs_ffi(
         std::slice::from_raw_parts_mut(out_ptr, out_len)
     };
 
-    // Each result is now [raw | corrected] so length is 2 * ccg_len
+    // Each result is [raw | jitter | corrected] so length is 3 * ccg_len
     for (k, (_i, _m, ccg)) in results.iter().enumerate() {
         let ccg_len = ccg.len();  // already doubled inside ccg_pair
         let offset  = k * ccg_len;
