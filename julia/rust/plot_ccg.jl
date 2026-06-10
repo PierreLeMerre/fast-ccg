@@ -5,7 +5,7 @@ using Statistics
 using Random
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-const RESULTS_FILE = "ccg_results.h5"
+const RESULTS_FILE = "ccg_216300_20200518-probe0.h5"
 const WIN_MS       = 100.0   # x-axis half-range in ms
 const N_PER_PAGE   = 10      # subplots per page
 

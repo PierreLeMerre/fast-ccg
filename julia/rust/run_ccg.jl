@@ -19,7 +19,7 @@ const MIN_FR_HZ     = 1.0     # minimum firing rate in Hz
 const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
 const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
 const N_INTERVALS   = 200     # randomly sample this many chunks; nothing = all
-const UNITS         = [1:10]  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
+const UNITS         = nothing  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 println("Loading spike times...")

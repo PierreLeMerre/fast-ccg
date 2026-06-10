@@ -24,7 +24,7 @@ Test CCG significance with:
 
 Excitatory: peak > threshold_sd above baseline in (0.8, 10] ms AND ≥2 consecutive bins
 Inhibitory: trough < neg_threshold_sd below baseline in (0.8, 10] ms AND ≥2 consecutive bins
-TP: Σ_{τ ∈ [0.8,10]ms} (raw[τ]−jitter[τ])×n_trials / n_spikes_i   (for i→m direction)
+TP: sum_{tau in [0.8,10]ms} (raw[tau]-jitter[tau]) / n_spikes_i   (for i->m direction)
 
 Arguments:
   raw, jitter, corrected : Matrices [ccg_len × n_pairs], mean coincidences/trial
@@ -122,7 +122,7 @@ function test_significance(
         ns_i  = n_spikes[i_idx]
         if ns_i > 0
             excess = (raw[tp_mask, k] .- jitter[tp_mask, k])
-            tp[k]  = sum(excess) * n_trials / ns_i
+            tp[k]  = sum(excess) / ns_i
         end
     end
 
