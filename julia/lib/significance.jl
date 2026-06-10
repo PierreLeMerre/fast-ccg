@@ -117,12 +117,13 @@ function test_significance(
 
         # ── Transmission probability ─────────────────────────────────────────
         # TP = Σ_{τ ∈ [0.8,10]ms} (raw[τ]−jitter[τ]) × n_trials / n_spikes_i
-        # raw and jitter are in mean coincidences/trial; ×n_trials → total excess coincidences
+        # raw/jitter are mean coincidences/trial → ×n_trials converts to total excess Y-spikes
+        # dividing by n_spikes_i (total X spikes) gives fraction: "10% of X spikes are followed by Y"
         i_idx = pairs[k][1]
         ns_i  = n_spikes[i_idx]
         if ns_i > 0
             excess = (raw[tp_mask, k] .- jitter[tp_mask, k])
-            tp[k]  = sum(excess) / ns_i
+            tp[k]  = sum(excess) * n_trials / ns_i
         end
     end
 
