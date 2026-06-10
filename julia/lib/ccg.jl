@@ -3,7 +3,6 @@ module CCG
 using Libdl
 using Statistics
 
-# Mirror Rust's nextpow2 to compute the nfft used internally
 nextpow2_julia(n::Int) = (p = 1; while p < n; p <<= 1; end; p)
 
 const LIB_PATH = joinpath(@__DIR__, "..", "..", "target", "release", "libcross_correlogram.dylib")
@@ -52,9 +51,9 @@ function ccg_pair(
         out, 3 * ccg_len
     )
 
-    raw       = out[1:ccg_len]             .* nfft
-    jitter    = out[ccg_len+1:2*ccg_len]   .* nfft
-    corrected = out[2*ccg_len+1:end]       .* nfft
+    raw       = out[1:ccg_len]
+    jitter    = out[ccg_len+1:2*ccg_len]
+    corrected = out[2*ccg_len+1:end]
     lags      = collect(-(n_time-1):(n_time-1))
     return raw, jitter, corrected, lags
 end
@@ -104,9 +103,9 @@ function compute_all_pairs(
         out, 3 * ccg_len * n_pairs
     )
 
-    raw       = out[1:ccg_len, :]             .* nfft
-    jitter    = out[ccg_len+1:2*ccg_len, :]   .* nfft
-    corrected = out[2*ccg_len+1:end, :]       .* nfft
+    raw       = out[1:ccg_len, :]
+    jitter    = out[ccg_len+1:2*ccg_len, :]
+    corrected = out[2*ccg_len+1:end, :]
     pairs     = [(i, m) for i in 1:n_neurons for m in (i+1):n_neurons]
     lags      = collect(-(n_time-1):(n_time-1))
     return raw, jitter, corrected, pairs, lags
