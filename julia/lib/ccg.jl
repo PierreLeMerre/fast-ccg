@@ -5,7 +5,7 @@ using Statistics
 
 nextpow2_julia(n::Int) = (p = 1; while p < n; p <<= 1; end; p)
 
-const LIB_PATH = joinpath(@__DIR__, "..", "..", "target", "release", "libcross_correlogram.dylib")
+const LIB_PATH = joinpath(@__DIR__, "..", "..", "target", "release", "libcross_correlogram.$(Libdl.dlext)")
 const lib = Libdl.dlopen(LIB_PATH)
 
 """
