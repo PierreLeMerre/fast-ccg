@@ -15,7 +15,7 @@ const NWB_PATH  = "/Volumes/MorseSSD/NPX_Database/frozen_Aversion_Nat_Submission
 # Example: const INTERVALS = [0.0 10.0; 20.0 30.0; 50.0 60.0]
 const INTERVALS     = nothing
 const BINSIZE       = 0.0005  # 0.5ms bins
-const MIN_FR_HZ     = 1.0     # minimum firing rate in Hz
+const MIN_FR_HZ     = 0.75     # minimum firing rate in Hz
 const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
 const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
 const N_INTERVALS   = 200     # randomly sample this many chunks; nothing = all
