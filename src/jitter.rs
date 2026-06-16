@@ -133,27 +133,36 @@ pub fn ccg_pair(
     out
 }
 
-/// All pairs in parallel
+/// All pairs in parallel.
+/// n_threads = 0  →  Rayon default (all available cores)
 pub fn compute_all_pairs(
     spikes:        &[Array2<f64>],
     firing_rates:  &[f64],
     jitter_window: usize,
+    n_threads:     usize,
 ) -> Vec<(usize, usize, Vec<f64>)> {
     let n_units = spikes.len();
     let pairs: Vec<(usize, usize)> = (0..n_units)
         .flat_map(|i| (i+1..n_units).map(move |m| (i, m)))
         .collect();
 
-    pairs.par_iter()
-        .map(|&(i, m)| {
-            let result = ccg_pair(
-                &spikes[i], &spikes[m],
-                firing_rates[i], firing_rates[m],
-                jitter_window,
-            );
-            (i, m, result)
-        })
-        .collect()
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads)   // 0 = let Rayon pick (all cores)
+        .build()
+        .expect("failed to build thread pool");
+
+    pool.install(|| {
+        pairs.par_iter()
+            .map(|&(i, m)| {
+                let result = ccg_pair(
+                    &spikes[i], &spikes[m],
+                    firing_rates[i], firing_rates[m],
+                    jitter_window,
+                );
+                (i, m, result)
+            })
+            .collect()
+    })
 }
 
 #[cfg(test)]

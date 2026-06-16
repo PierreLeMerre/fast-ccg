@@ -20,6 +20,7 @@ const JITTER_WIN    = 50      # 25ms jitter window → 50 bins at 0.5ms
 const CHUNK_DUR     = 3.0     # seconds per chunk when using whole-recording mode
 const N_INTERVALS   = 200     # randomly sample this many chunks; nothing = all
 const UNITS         = nothing  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
+const N_THREADS     = 0        # Rayon worker threads: 0 = all available cores
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 println("Loading spike times...")
@@ -56,7 +57,7 @@ println("  Pairs to compute: $n_pairs")
 println("\nComputing CCGs (Rust, parallel)...")
 t_start = time()
 raw, jitter, corrected, pairs, lags = CCG.compute_all_pairs(
-    matrices, frs; jitter_window=JITTER_WIN
+    matrices, frs; jitter_window=JITTER_WIN, n_threads=N_THREADS
 )
 t_elapsed = time() - t_start
 

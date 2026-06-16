@@ -44,6 +44,7 @@ pub extern "C" fn ccg_pair_ffi(
 }
 
 /// C-compatible entry point for Julia — all pairs in parallel
+/// n_threads = 0  →  use all available cores (Rayon default)
 #[no_mangle]
 pub extern "C" fn compute_all_pairs_ffi(
     spikes_ptr: *const f64,
@@ -52,6 +53,7 @@ pub extern "C" fn compute_all_pairs_ffi(
     n_neurons: usize,
     fr_ptr: *const f64,
     jitter_window: usize,
+    n_threads: usize,
     out_ptr: *mut f64,
     out_len: usize,  // should be 3 * ccg_len * n_pairs  — [raw | jitter | corrected] per pair
 ) {
@@ -73,7 +75,7 @@ pub extern "C" fn compute_all_pairs_ffi(
         .collect();
 
     let firing_rates: Vec<f64> = fr_slice.to_vec();
-    let results = compute_all_pairs(&spikes_per_neuron, &firing_rates, jitter_window);
+    let results = compute_all_pairs(&spikes_per_neuron, &firing_rates, jitter_window, n_threads);
 
     let out_slice = unsafe {
         std::slice::from_raw_parts_mut(out_ptr, out_len)
