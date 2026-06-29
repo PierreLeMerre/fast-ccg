@@ -1,14 +1,18 @@
 # ── Usage ─────────────────────────────────────────────────────────────────────
-# julia --sysimage /path/to/ccg_sysimage.so run_ccg_job.jl <nwb_path> [out_dir]
+# julia --sysimage /path/to/ccg_sysimage.so run_ccg_job.jl <nwb_path> [out_dir] [n_threads]
 #
 # Arguments:
 #   nwb_path  — path to the .nwb file to process
 #   out_dir   — directory for the output .h5 file (default: same dir as nwb_path)
+#   n_threads — number of Rayon worker threads (default: SLURM_CPUS_PER_TASK env var, else 0 = all cores)
 
-length(ARGS) >= 1 || error("Usage: julia run_ccg_job.jl <nwb_path> [out_dir]")
+length(ARGS) >= 1 || error("Usage: julia run_ccg_job.jl <nwb_path> [out_dir] [n_threads]")
 
-const NWB_PATH = ARGS[1]
-const OUT_DIR  = length(ARGS) >= 2 ? ARGS[2] : dirname(NWB_PATH)
+const NWB_PATH  = ARGS[1]
+const OUT_DIR   = length(ARGS) >= 2 ? ARGS[2] : dirname(NWB_PATH)
+# n_threads: CLI arg > SLURM env var > 0 (all cores)
+const N_THREADS = length(ARGS) >= 3 ? parse(Int, ARGS[3]) :
+                  parse(Int, get(ENV, "SLURM_CPUS_PER_TASK", "0"))
 
 isfile(NWB_PATH) || error("NWB file not found: $NWB_PATH")
 isdir(OUT_DIR)   || mkpath(OUT_DIR)
@@ -30,6 +34,7 @@ const JITTER_WIN    = 50        # 25 ms jitter window → 50 bins at 0.5 ms
 const CHUNK_DUR     = 3.0       # seconds per chunk (whole-recording mode)
 const N_INTERVALS   = 200       # randomly sample this many chunks; nothing = all
 const UNITS         = nothing   # nothing = all units
+# N_THREADS resolved above from CLI / SLURM_CPUS_PER_TASK / 0
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 println("[$NWB_PATH] Loading spike times...")
@@ -65,7 +70,7 @@ println("  Pairs to compute: $n_pairs")
 println("Computing CCGs (Rust, parallel)...")
 t_start = time()
 raw, jitter, corrected, pairs, lags = CCG.compute_all_pairs(
-    matrices, frs; jitter_window=JITTER_WIN
+    matrices, frs; jitter_window=JITTER_WIN, n_threads=N_THREADS
 )
 t_elapsed = time() - t_start
 lags_ms = lags .* (BINSIZE * 1000)

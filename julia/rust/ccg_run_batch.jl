@@ -29,6 +29,7 @@ const CONFIG = (
     chunk_dur     = 3.0,   # seconds per chunk in whole-recording mode
     n_intervals   = 200,   # randomly sample this many chunks; nothing = all
     units      = nothing,  # restrict to specific unit IDs, e.g. [1, 44, 67]; nothing = all
+    n_threads  = 0,        # Rayon worker threads: 0 = all available cores
 
     # Significance thresholds
     peak_window_ms   = 10.0,
@@ -90,7 +91,7 @@ function process_recording(cfg, nwb_file)
     println("  Computing CCGs (Rust, parallel)...")
     t_start = time()
     raw, jitter, corrected, pairs, lags = CCG.compute_all_pairs(
-        matrices, frs; jitter_window=cfg.jitter_win
+        matrices, frs; jitter_window=cfg.jitter_win, n_threads=cfg.n_threads
     )
     t_elapsed = time() - t_start
     lags_ms   = lags .* (cfg.binsize * 1000)

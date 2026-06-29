@@ -7,10 +7,11 @@ using Random
 using ProgressMeter
 
 # Exercise HDF5 to force method compilation
-buf = IOBuffer()
-h5open(buf, "w") do f
+tmp_h5 = tempname() * ".h5"
+h5open(tmp_h5, "w") do f
     f["x"] = collect(1.0:10.0)
 end
+rm(tmp_h5; force=true)
 
 # Exercise Statistics
 x = randn(100)

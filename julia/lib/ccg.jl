@@ -59,7 +59,7 @@ function ccg_pair(
 end
 
 """
-    compute_all_pairs(spikes, firing_rates; jitter_window=25)
+    compute_all_pairs(spikes, firing_rates; jitter_window=25, n_threads=0)
 
 Compute raw, jitter and jitter-corrected CCG for all neuron pairs in parallel.
 
@@ -67,6 +67,7 @@ Arguments:
   spikes        : Vector of [n_time × n_trials] matrices, one per neuron
   firing_rates  : Vector of mean firing rates (spikes/bin), one per neuron
   jitter_window : jitter window in bins (default 25)
+  n_threads     : number of Rayon worker threads (0 = all available cores)
 
 Returns:
   raw       : Matrix{Float64} [ccg_len × n_pairs] — mean coincidences per trial
@@ -78,7 +79,8 @@ Returns:
 function compute_all_pairs(
     spikes::Vector{Matrix{Float64}},
     firing_rates::Vector{Float64};
-    jitter_window::Int = 25
+    jitter_window::Int = 25,
+    n_threads::Int     = 0
 )
     n_neurons        = length(spikes)
     n_time, n_trials = size(spikes[1])
@@ -96,10 +98,12 @@ function compute_all_pairs(
         (Ptr{Float64}, Csize_t, Csize_t, Csize_t,
          Ptr{Float64},
          Csize_t,
+         Csize_t,
          Ptr{Float64}, Csize_t),
         spikes_flat, n_time, n_trials, n_neurons,
         firing_rates,
         jitter_window,
+        n_threads,
         out, 3 * ccg_len * n_pairs
     )
 
